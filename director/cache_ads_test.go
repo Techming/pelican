@@ -212,14 +212,14 @@ func TestGetAdsForPath(t *testing.T) {
 	assert.Equal(t, 0, len(cAds))
 
 	// Filtered server should not be included
-	filteredServersMutex.Lock()
-	tmp := filteredServers
-	filteredServers = map[string]filterType{"origin1": permFiltered, "cache1": tempFiltered}
-	filteredServersMutex.Unlock()
+	disabledServersMutex.Lock()
+	tmp := disabledServers
+	disabledServers = map[string]disabledReason{"origin1": permDisabeld, "cache1": tempDisabled}
+	disabledServersMutex.Unlock()
 	defer func() {
-		filteredServersMutex.Lock()
-		filteredServers = tmp
-		filteredServersMutex.Unlock()
+		disabledServersMutex.Lock()
+		disabledServers = tmp
+		disabledServersMutex.Unlock()
 	}()
 
 	// /chtc has two servers, one is from topology the other is from Pelican

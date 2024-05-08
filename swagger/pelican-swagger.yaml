@@ -1504,12 +1504,61 @@ paths:
           schema:
             type: object
             $ref: "#/definitions/ErrorModelV2"
+    patch:
+      summary: Toggle disable/enable a server from accepting object transfer requests
+      description: |
+        `Authentication Required` `Admin privilege Required`
+
+        **Requests with the body `{disabled: false }` on an already-disabled server are in-memory and will be removed at the server restart.**
+
+        You may reset the rules defined in `Director.DisabledServers` in-memory but they will be overwritten at the server restart
+      tags:
+        - "director_ui"
+      consumes:
+        - "application/json"
+      produces:
+        - "application/json"
+      parameters:
+        - in: query
+          name: serverUrl
+          type: string
+          required: true
+          description: |
+            The **URL-encoded** server URL to disable/enable the server.
+            The value is the `url` field in `GET /director/servers` response.
+        - in: body
+          name: server
+          required: true
+          schema:
+            type: object
+            properties:
+              disabled:
+                type: boolean
+      responses:
+        "200":
+          description: "OK"
+          schema:
+            type: object
+            $ref: "#/definitions/SuccessModelV2"
+        "400":
+          description: "Bad request. Either `serverUrl` is missing or the request body is invalid"
+          schema:
+            type: object
+            $ref: "#/definitions/ErrorModelV2"
+        "403":
+          description: "Forbidden. Admin privilege required"
+          schema:
+            type: object
+            $ref: "#/definitions/ErrorModelV2"
+
   /director_ui/servers/filter/{name}:
     patch:
+      deprecated: true
       summary: Filter a server from director redirecting
       description: |
         `Authentication Required` `Admin privilege Required`
 
+        This endpoint is deprecated. Use `/director_ui/servers` instead.
 
         **The filter rules registered by this endpoint are in-memory and will be reset at the server restart.**
 
@@ -1544,10 +1593,12 @@ paths:
             $ref: "#/definitions/ErrorModelV2"
   /director_ui/servers/allow/{name}:
     patch:
+      deprecated: true
       summary: Reset filtering rule for a server from director redirecting
       description: |
         `Authentication Required` `Admin`
 
+        This endpoint is deprecated. Use `/director_ui/servers` instead.
 
         **The reset of filter rules registered by this endpoint are in-memory and will be removed at the server restart.**
 

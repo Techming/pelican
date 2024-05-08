@@ -56,7 +56,7 @@ var (
 	PelicanDirectorMapItemsTotal = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pelican_director_map_items_total",
 		Help: "The total number of map items in the director, by the name of the map",
-	}, []string{"name"}) // name: healthTestUtils, filteredServers, originStatUtils
+	}, []string{"name"}) // name: healthTestUtils, disabledServers, originStatUtils
 
 	PelicanDirectorTTLCache = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "pelican_director_ttl_cache",

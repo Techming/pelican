@@ -62,6 +62,7 @@ type Config struct {
 		CacheResponseHostnames []string
 		CacheSortMethod string
 		DefaultResponse string
+		DisabledServers []string
 		EnableBroker bool
 		EnableOIDC bool
 		FilteredServers []string
@@ -337,6 +338,7 @@ type configWithType struct {
 		CacheResponseHostnames struct { Type string; Value []string }
 		CacheSortMethod struct { Type string; Value string }
 		DefaultResponse struct { Type string; Value string }
+		DisabledServers struct { Type string; Value []string }
 		EnableBroker struct { Type string; Value bool }
 		EnableOIDC struct { Type string; Value bool }
 		FilteredServers struct { Type string; Value []string }

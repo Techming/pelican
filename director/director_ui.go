@@ -33,6 +33,9 @@ import (
 )
 
 type (
+	patchServerRequest struct {
+		Disabled bool `json:"disabled"`
+	}
 	listServerRequest struct {
 		ServerType string `form:"server_type"` // "cache" or "origin"
 	}
@@ -50,7 +53,7 @@ type (
 		DirectReads       bool                      `json:"enableFallbackRead"`
 		Listings          bool                      `json:"enableListing"`
 		Filtered          bool                      `json:"filtered"`
-		FilteredType      filterType                `json:"filteredType"`
+		FilteredType      disabledReason            `json:"filteredType"`
 		Status            HealthTestStatus          `json:"status"`
 		NamespacePrefixes []string                  `json:"namespacePrefixes"`
 	}
@@ -113,7 +116,7 @@ func listServers(ctx *gin.Context) {
 		if ok {
 			healthStatus = healthUtil.Status
 		}
-		filtered, ft := checkFilter(server.Name)
+		disabled, ft := isServerDisabled(server.Name)
 		var auth_url string
 		if server.AuthURL == (url.URL{}) {
 			auth_url = server.URL.String()
@@ -132,7 +135,7 @@ func listServers(ctx *gin.Context) {
 			Writes:       server.Writes,
 			DirectReads:  server.DirectReads,
 			Listings:     server.Listings,
-			Filtered:     filtered,
+			Filtered:     disabled,
 			FilteredType: ft,
 			Status:       healthStatus,
 		}
@@ -206,68 +209,67 @@ func queryOrigins(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, res)
 }
 
-// A gin route handler that given a server hostname through path variable `name`,
-// checks and adds the server to a list of servers to be bypassed when the director redirects
-// object requests from the client
-func handleFilterServer(ctx *gin.Context) {
-	sn := strings.TrimPrefix(ctx.Param("name"), "/")
-	if sn == "" {
+// Disable or enable an origin/cache server to accept object transfer request
+func handleDisableServerToggle(ctx *gin.Context) {
+	serverUrl := ctx.Query("serverUrl")
+	if serverUrl == "" {
 		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
 			Status: server_structs.RespFailed,
-			Msg:    "'name' is a required path parameter",
+			Msg:    "'serverUrl' is a required query parameter",
 		})
 		return
 	}
-	filtered, filterType := checkFilter(sn)
-	if filtered {
+	req := patchServerRequest{}
+	err := ctx.ShouldBindJSON(&req)
+	if err != nil {
 		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
 			Status: server_structs.RespFailed,
-			Msg:    fmt.Sprint("Can't filter a server that already has been fitlered with type ", filterType),
+			Msg:    fmt.Sprintf("Failed to bind reqeust body: %v", err),
 		})
 		return
 	}
-	filteredServersMutex.Lock()
-	defer filteredServersMutex.Unlock()
 
-	// If we previously temporarily allowed a server, we switch to permFiltered (reset)
-	if filterType == tempAllowed {
-		filteredServers[sn] = permFiltered
+	// You can't enable a server that's not disabled
+	if _, ok := disabledServers[serverUrl]; !req.Disabled && !ok {
+		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
+			Status: server_structs.RespFailed,
+			Msg:    "Can't enable a server that is not disabled or does not exist",
+		})
+		return
+	}
+
+	isDisabled, reason := isServerDisabled(serverUrl)
+	if isDisabled && req.Disabled {
+		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
+			Status: server_structs.RespFailed,
+			Msg:    fmt.Sprint("Can't disable a server that already has been disabled with reason: ", reason),
+		})
+		return
+	} else if !isDisabled && !req.Disabled {
+		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
+			Status: server_structs.RespFailed,
+			Msg:    fmt.Sprint("Can't enable a server that already has been enabled with reason: ", reason),
+		})
+		return
+	}
+	disabledServersMutex.Lock()
+	defer disabledServersMutex.Unlock()
+
+	if req.Disabled {
+		// If we previously temporarily allowed a server, we switch to permFiltered (reset)
+		if reason == tempEnabled {
+			disabledServers[serverUrl] = permDisabeld
+		} else {
+			disabledServers[serverUrl] = tempDisabled
+		}
 	} else {
-		filteredServers[sn] = tempFiltered
-	}
-	ctx.JSON(http.StatusOK, server_structs.SimpleApiResp{Status: server_structs.RespOK, Msg: "success"})
-}
-
-// A gin route handler that given a server hostname through path variable `name`,
-// checks and removes the server from a list of servers to be bypassed when the director redirects
-// object requests from the client
-func handleAllowServer(ctx *gin.Context) {
-	sn := strings.TrimPrefix(ctx.Param("name"), "/")
-	if sn == "" {
-		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
-			Status: server_structs.RespFailed,
-			Msg:    "'name' is a required path parameter",
-		})
-		return
-	}
-	filtered, ft := checkFilter(sn)
-	if !filtered {
-		ctx.JSON(http.StatusBadRequest, server_structs.SimpleApiResp{
-			Status: server_structs.RespFailed,
-			Msg:    fmt.Sprintf("Can't allow server %s that is not being filtered", sn),
-		})
-		return
-	}
-
-	filteredServersMutex.Lock()
-	defer filteredServersMutex.Unlock()
-
-	if ft == tempFiltered {
-		// For temporarily filtered server, allowing them by removing the server from the map
-		delete(filteredServers, sn)
-	} else if ft == permFiltered {
-		// For servers to filter from the config, temporarily allow the server
-		filteredServers[sn] = tempAllowed
+		if reason == tempDisabled {
+			// For temporarily filtered server, allowing them by removing the server from the map
+			delete(disabledServers, serverUrl)
+		} else if reason == permDisabeld {
+			// For servers to filter from the config, temporarily allow the server
+			disabledServers[serverUrl] = tempEnabled
+		}
 	}
 	ctx.JSON(http.StatusOK, server_structs.SimpleApiResp{Status: server_structs.RespOK, Msg: "success"})
 }
@@ -285,8 +287,7 @@ func RegisterDirectorWebAPI(router *gin.RouterGroup) {
 	// Follow RESTful schema
 	{
 		directorWebAPI.GET("/servers", listServers)
-		directorWebAPI.PATCH("/servers/filter/*name", web_ui.AuthHandler, web_ui.AdminAuthHandler, handleFilterServer)
-		directorWebAPI.PATCH("/servers/allow/*name", web_ui.AuthHandler, web_ui.AdminAuthHandler, handleAllowServer)
+		directorWebAPI.PATCH("/servers", web_ui.AuthHandler, web_ui.AdminAuthHandler, handleDisableServerToggle)
 		directorWebAPI.GET("/servers/origins/stat/*path", web_ui.AuthHandler, queryOrigins)
 		directorWebAPI.HEAD("/servers/origins/stat/*path", web_ui.AuthHandler, queryOrigins)
 		directorWebAPI.GET("/contact", handleDirectorContact)

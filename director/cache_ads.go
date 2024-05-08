@@ -35,20 +35,33 @@ import (
 	"github.com/pelicanplatform/pelican/server_structs"
 )
 
-type filterType string
+type disabledReason string
 
 const (
-	permFiltered filterType = "permFiltered" // Read from Director.FilteredServers
-	tempFiltered filterType = "tempFiltered" // Filtered by web UI
-	tempAllowed  filterType = "tempAllowed"  // Read from Director.FilteredServers but mutated by web UI
+	permDisabeld disabledReason = "permDisabled" // Disabled via Director.DisabledServers
+	tempDisabled disabledReason = "tempDisabled" // Disabled by web UI
+	tempEnabled  disabledReason = "tempEnabled"  // Disabled via Director.DisabledServers but enabled by web UI
 )
 
 var (
 	// The in-memory cache of xrootd server advertisement, with the key being ServerAd.URL.String()
 	serverAds            = ttlcache.New(ttlcache.WithTTL[string, *server_structs.Advertisement](15 * time.Minute))
-	filteredServers      = map[string]filterType{} // The map holds servers that are disabled, with the key being the ServerAd.Name
-	filteredServersMutex = sync.RWMutex{}
+	disabledServers      = map[string]disabledReason{} // The map holds servers that are disabled. The key is ServerAd.DataURL
+	disabledServersMutex = sync.RWMutex{}
 )
+
+func (d disabledReason) String() string {
+	switch d {
+	case permDisabeld:
+		return "Permanently Disabled via the director configuration"
+	case tempDisabled:
+		return "Temporarily disabled via the admin website"
+	case tempEnabled:
+		return "Temporarily enabled via the admin website"
+	default:
+		return "Unknown Reason"
+	}
+}
 
 func recordAd(ad server_structs.ServerAd, namespaceAds *[]server_structs.NamespaceAdV2) {
 	if err := updateLatLong(&ad); err != nil {
@@ -182,8 +195,8 @@ func getAdsForPath(reqPath string) (originNamespace server_structs.NamespaceAdV2
 	}
 	sortedAds := sortServerAdsByTopo(ads)
 	for _, ad := range sortedAds {
-		if filtered, ft := checkFilter(ad.Name); filtered {
-			log.Debugf("Skipping %s server %s as it's in the filtered server list with type %s", ad.Type, ad.Name, ft)
+		if disabled, ft := isServerDisabled(ad.Name); disabled {
+			log.Debugf("Skipping %s server %s as it's in the disabled server list with type %s", ad.Type, ad.Name, ft)
 			continue
 		}
 		if ns := matchesPrefix(reqPath, ad.NamespaceAds); ns != nil {

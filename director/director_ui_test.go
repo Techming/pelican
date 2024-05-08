@@ -19,9 +19,12 @@
 package director
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -167,5 +170,219 @@ func TestListServers(t *testing.T) {
 
 		// Check the response
 		require.Equal(t, 400, w.Code)
+	})
+}
+
+func TestHandleDisableServerToggle(t *testing.T) {
+	cleanupMap := func() {
+		disabledServersMutex.Lock()
+		defer disabledServersMutex.Unlock()
+		disabledServers = map[string]disabledReason{}
+	}
+	t.Cleanup(cleanupMap)
+	router := gin.Default()
+	router.PATCH("/servers", handleDisableServerToggle)
+
+	t.Run("disable-server-success", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+		mockServerUrl := "https://mock-origin.org:8444"
+		reqBody := patchServerRequest{Disabled: true}
+		reqBodyBytes, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), bytes.NewReader(reqBodyBytes))
+
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 200, w.Code)
+
+		disabledServersMutex.RLock()
+		defer disabledServersMutex.RUnlock()
+		assert.Equal(t, tempDisabled, disabledServers["https://mock-origin.org:8444"])
+	})
+	t.Run("disable-server-w-permDisabled-returns-400", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+
+		mockServerUrl := "https://mock-perm-disabled.org:8444"
+
+		disabledServersMutex.Lock()
+		disabledServers[mockServerUrl] = permDisabeld
+		disabledServersMutex.Unlock()
+
+		reqBody := patchServerRequest{Disabled: true}
+		reqBodyBytes, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), bytes.NewReader(reqBodyBytes))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 400, w.Code)
+
+		disabledServersMutex.RLock()
+		defer disabledServersMutex.RUnlock()
+		assert.Equal(t, permDisabeld, disabledServers[mockServerUrl])
+
+		resB, err := io.ReadAll(w.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(resB), "Can't disable a server that already has been disabled")
+	})
+	t.Run("disable-server-w-tempDisabled-returns-400", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+
+		mockServerUrl := "https://mock-temp-disabled.org:8444"
+
+		disabledServersMutex.Lock()
+		disabledServers[mockServerUrl] = tempDisabled
+		disabledServersMutex.Unlock()
+
+		reqBody := patchServerRequest{Disabled: true}
+		reqBodyBytes, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), bytes.NewReader(reqBodyBytes))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 400, w.Code)
+
+		disabledServersMutex.RLock()
+		defer disabledServersMutex.RUnlock()
+		assert.Equal(t, tempDisabled, disabledServers[mockServerUrl])
+
+		resB, err := io.ReadAll(w.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(resB), "Can't disable a server that already has been disabled")
+	})
+	t.Run("disable-tempEnabled-server-success", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+
+		mockServerUrl := "https://mock-temp-allowed.org:8444"
+
+		disabledServersMutex.Lock()
+		disabledServers[mockServerUrl] = tempEnabled
+		disabledServersMutex.Unlock()
+
+		reqBody := patchServerRequest{Disabled: true}
+		reqBodyBytes, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), bytes.NewReader(reqBodyBytes))
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 200, w.Code)
+
+		disabledServersMutex.RLock()
+		defer disabledServersMutex.RUnlock()
+		assert.Equal(t, permDisabeld, disabledServers[mockServerUrl])
+	})
+	t.Run("disable-without-serverUrl-returns-400", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("PATCH", "/servers", nil)
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 400, w.Code)
+		resB, err := io.ReadAll(w.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(resB), "'serverUrl' is a required query parameter")
+	})
+
+	t.Run("disable-without-body-returns-400", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+		mockServerUrl := "https://mock-origin.org:8444"
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), nil)
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 400, w.Code)
+		resB, err := io.ReadAll(w.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(resB), "Failed to bind reqeust body")
+	})
+
+	/****************************
+	 * Enable a disabled server *
+	 ****************************/
+	t.Run("enable-server-that-dne", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+		mockServerUrl := "https://mock-origin.org:8444"
+		reqBody := patchServerRequest{Disabled: false}
+		reqBodyBytes, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), bytes.NewReader(reqBodyBytes))
+
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 400, w.Code)
+		resB, err := io.ReadAll(w.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(resB), "Can't enable a server that is not disabled or does not exist")
+	})
+	t.Run("enable-server-w-permDisabled", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+		mockServerUrl := "https://mock-perm-disabled.org:8444"
+
+		reqBody := patchServerRequest{Disabled: false}
+		reqBodyBytes, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), bytes.NewReader(reqBodyBytes))
+		disabledServersMutex.Lock()
+		disabledServers[mockServerUrl] = permDisabeld
+		disabledServersMutex.Unlock()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 200, w.Code)
+
+		disabledServersMutex.RLock()
+		defer disabledServersMutex.RUnlock()
+		assert.Equal(t, tempEnabled, disabledServers[mockServerUrl])
+	})
+	t.Run("enable-server-w-tempDisabled", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+		mockServerUrl := "https://mock-temp-disabled.org:8444"
+		reqBody := patchServerRequest{Disabled: false}
+		reqBodyBytes, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), bytes.NewReader(reqBodyBytes))
+		disabledServersMutex.Lock()
+		disabledServers[mockServerUrl] = tempDisabled
+		disabledServersMutex.Unlock()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 200, w.Code)
+
+		disabledServersMutex.RLock()
+		defer disabledServersMutex.RUnlock()
+		assert.Empty(t, disabledServers[mockServerUrl])
+	})
+	t.Run("enable-tempEnabled-server-400", func(t *testing.T) {
+		defer cleanupMap()
+		w := httptest.NewRecorder()
+
+		mockServerUrl := "https://mock-temp-disabled.org:8444"
+		reqBody := patchServerRequest{Disabled: false}
+		reqBodyBytes, err := json.Marshal(reqBody)
+		require.NoError(t, err)
+
+		req, _ := http.NewRequest("PATCH", "/servers?serverUrl="+url.QueryEscape(mockServerUrl), bytes.NewReader(reqBodyBytes))
+		disabledServersMutex.Lock()
+		disabledServers[mockServerUrl] = tempEnabled
+		disabledServersMutex.Unlock()
+		router.ServeHTTP(w, req)
+
+		require.Equal(t, 400, w.Code)
+
+		disabledServersMutex.RLock()
+		defer disabledServersMutex.RUnlock()
+		assert.Equal(t, tempEnabled, disabledServers[mockServerUrl])
+
+		resB, err := io.ReadAll(w.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(resB), "Can't enable a server that already has been enabled")
 	})
 }

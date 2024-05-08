@@ -1208,7 +1208,20 @@ components: ["director"]
 ---
 name: Director.FilteredServers
 description: |+
+  [Deprecated] `Director.FilteredServers` is deprecated and will be removed in the future releases.
+  Use `Director.DisabledServers` instead.
+
   A list of server host names to not to redirect client requests to. This is for admins to put a list of
+  servers in the federation into downtime.
+type: stringSlice
+default: none
+deprecated: true
+replacedby: ["Director.DisabledServers"]
+components: ["director"]
+---
+name: Director.DisabledServers
+description: |+
+  A list of server data URLs to not to redirect client requests to. This is for admins to put a list of
   servers in the federation into downtime.
 type: stringSlice
 default: none

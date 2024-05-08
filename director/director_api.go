@@ -60,27 +60,26 @@ func listAdvertisement(serverTypes []server_structs.ServerType) []server_structs
 	return ads
 }
 
-// Check if a server is filtered from "production" servers by
-// checking if a serverName is in the filteredServers map
-func checkFilter(serverName string) (bool, filterType) {
-	filteredServersMutex.RLock()
-	defer filteredServersMutex.RUnlock()
+// Check if a server is diabled by checking if the server's data URL is in the disabledServers map
+func isServerDisabled(serverName string) (bool, disabledReason) {
+	disabledServersMutex.RLock()
+	defer disabledServersMutex.RUnlock()
 
-	status, exists := filteredServers[serverName]
+	status, exists := disabledServers[serverName]
 	// No filter entry
 	if !exists {
 		return false, ""
 	} else {
 		// Has filter entry
 		switch status {
-		case permFiltered:
-			return true, permFiltered
-		case tempFiltered:
-			return true, tempFiltered
-		case tempAllowed:
-			return false, tempAllowed
+		case permDisabeld:
+			return true, permDisabeld
+		case tempDisabled:
+			return true, tempDisabled
+		case tempEnabled:
+			return false, tempEnabled
 		default:
-			log.Error("Unknown filterType: ", status)
+			log.Error("Unknown disabledType: ", status)
 			return false, ""
 		}
 	}
@@ -172,7 +171,7 @@ func LaunchMapMetrics(ctx context.Context, egrp *errgroup.Group) {
 				metrics.PelicanDirectorTTLCache.With(prometheus.Labels{"name": "jwks", "type": "total"}).Set(float64(namespaceKeys.Len()))
 
 				// Maps
-				metrics.PelicanDirectorMapItemsTotal.WithLabelValues("filteredServers").Set(float64(len(filteredServers)))
+				metrics.PelicanDirectorMapItemsTotal.WithLabelValues("disabledServers").Set(float64(len(disabledServers)))
 				metrics.PelicanDirectorMapItemsTotal.WithLabelValues("healthTestUtils").Set(float64(len(healthTestUtils)))
 				metrics.PelicanDirectorMapItemsTotal.WithLabelValues("originStatUtils").Set(float64(len(originStatUtils)))
 			}
@@ -180,16 +179,16 @@ func LaunchMapMetrics(ctx context.Context, egrp *errgroup.Group) {
 	})
 }
 
-// Populate internal filteredServers map by Director.FilteredServers
-func ConfigFilterdServers() {
-	filteredServersMutex.Lock()
-	defer filteredServersMutex.Unlock()
+// Populate internal disabledServers map by Director.DisabledServers
+func ConfigDisabledServers() {
+	disabledServersMutex.Lock()
+	defer disabledServersMutex.Unlock()
 
-	if !param.Director_FilteredServers.IsSet() {
+	if !param.Director_DisabledServers.IsSet() {
 		return
 	}
 
-	for _, sn := range param.Director_FilteredServers.GetStringSlice() {
-		filteredServers[sn] = permFiltered
+	for _, sn := range param.Director_DisabledServers.GetStringSlice() {
+		disabledServers[sn] = permDisabeld
 	}
 }

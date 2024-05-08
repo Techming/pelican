@@ -52,6 +52,7 @@ type ObjectParam struct {
 func GetDeprecated() map[string][]string {
     return map[string][]string{
         "Cache.DataLocation": []string{"Cache.LocalRoot"},
+        "Director.FilteredServers": []string{"Director.DisabledServers"},
         "Origin.EnableDirListing": []string{"Origin.EnableListings"},
         "Origin.EnableFallbackRead": []string{"Origin.EnableDirectReads"},
         "Origin.EnableWrite": []string{"Origin.EnableWrites"},
@@ -248,6 +249,7 @@ var (
 	Cache_MetaLocations = StringSliceParam{"Cache.MetaLocations"}
 	Cache_PermittedNamespaces = StringSliceParam{"Cache.PermittedNamespaces"}
 	Director_CacheResponseHostnames = StringSliceParam{"Director.CacheResponseHostnames"}
+	Director_DisabledServers = StringSliceParam{"Director.DisabledServers"}
 	Director_FilteredServers = StringSliceParam{"Director.FilteredServers"}
 	Director_OriginResponseHostnames = StringSliceParam{"Director.OriginResponseHostnames"}
 	Issuer_GroupRequirements = StringSliceParam{"Issuer.GroupRequirements"}

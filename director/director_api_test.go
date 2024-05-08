@@ -190,62 +190,62 @@ func TestListServerAds(t *testing.T) {
 	})
 }
 
-func TestCheckFilter(t *testing.T) {
+func TestIsServerDisabled(t *testing.T) {
 	testCases := []struct {
 		name         string
-		mapItems     map[string]filterType
+		mapItems     map[string]disabledReason
 		serverToTest string
 		filtered     bool
-		ft           filterType
+		ft           disabledReason
 	}{
 		{
 			name:         "empty-list-return-false",
-			serverToTest: "mock",
+			serverToTest: "https://server-temp-enabled.com",
 			filtered:     false,
 		},
 		{
 			name:         "dne-return-false",
-			serverToTest: "mock",
-			mapItems:     map[string]filterType{"no-your-server": permFiltered},
+			serverToTest: "https://server-temp-enabled.com",
+			mapItems:     map[string]disabledReason{"https://random-server.com": permDisabeld},
 			filtered:     false,
 		},
 		{
 			name:         "perm-return-true",
-			serverToTest: "mock",
-			mapItems:     map[string]filterType{"mock": permFiltered, "no-your-server": tempFiltered},
+			serverToTest: "https://server-temp-enabled.com",
+			mapItems:     map[string]disabledReason{"https://server-temp-enabled.com": permDisabeld, "https://random-server.com": tempDisabled},
 			filtered:     true,
-			ft:           permFiltered,
+			ft:           permDisabeld,
 		},
 		{
 			name:         "temp-filter-return-true",
-			serverToTest: "mock",
-			mapItems:     map[string]filterType{"mock": tempFiltered, "no-your-server": permFiltered},
+			serverToTest: "https://server-temp-enabled.com",
+			mapItems:     map[string]disabledReason{"https://server-temp-enabled.com": tempDisabled, "https://random-server.com": permDisabeld},
 			filtered:     true,
-			ft:           tempFiltered,
+			ft:           tempDisabled,
 		},
 		{
 			name:         "temp-allow-return-false",
-			serverToTest: "mock",
-			mapItems:     map[string]filterType{"mock": tempAllowed, "no-your-server": permFiltered},
+			serverToTest: "https://server-temp-enabled.com",
+			mapItems:     map[string]disabledReason{"https://server-temp-enabled.com": tempEnabled, "https://random-server.com": permDisabeld},
 			filtered:     false,
-			ft:           tempAllowed,
+			ft:           tempEnabled,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			filteredServersMutex.Lock()
-			tmpMap := filteredServers
-			filteredServers = tc.mapItems
-			filteredServersMutex.Unlock()
+			disabledServersMutex.Lock()
+			tmpMap := disabledServers
+			disabledServers = tc.mapItems
+			disabledServersMutex.Unlock()
 
 			defer func() {
-				filteredServersMutex.Lock()
-				filteredServers = tmpMap
-				filteredServersMutex.Unlock()
+				disabledServersMutex.Lock()
+				disabledServers = tmpMap
+				disabledServersMutex.Unlock()
 			}()
 
-			getFilter, getType := checkFilter(tc.serverToTest)
+			getFilter, getType := isServerDisabled(tc.serverToTest)
 			assert.Equal(t, tc.filtered, getFilter)
 			assert.Equal(t, tc.ft, getType)
 

@@ -55,7 +55,7 @@ func DirectorServe(ctx context.Context, engine *gin.Engine, egrp *errgroup.Group
 
 	director.LaunchMapMetrics(ctx, egrp)
 
-	director.ConfigFilterdServers()
+	director.ConfigDisabledServers()
 
 	// Configure the shortcut middleware to either redirect to a cache
 	// or to an origin
